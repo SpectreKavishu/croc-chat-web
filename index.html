@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="en" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Croc-Chat E2EE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        imessage: {
+                            blue: '#007AFF',
+                            gray: '#E5E5EA',
+                            darkgray: '#262628'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+    <style>
+        /* Modern scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .dark ::-webkit-scrollbar-thumb { background: #475569; }
+        
+        /* Smooth transitions for theme toggle */
+        body, .transition-theme { transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
+    </style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 min-h-screen flex items-center justify-center p-4 font-sans transition-theme">
+
+    <!-- Main Container -->
+    <div class="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md md:max-w-2xl overflow-hidden border border-gray-200 dark:border-gray-700 h-[700px] flex flex-col relative transition-theme">
+        
+        <!-- Header -->
+        <header class="bg-gray-50 dark:bg-gray-900 p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center z-10 transition-theme backdrop-blur-md bg-opacity-80 dark:bg-opacity-80">
+            <div class="flex items-center space-x-3">
+                <div class="bg-imessage-blue p-1.5 rounded-full text-white shadow-md">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold tracking-tight text-gray-900 dark:text-white leading-tight">Secure Chat</h1>
+                    <div id="status-indicator" class="text-xs font-medium flex items-center text-gray-500 dark:text-gray-400">
+                        <span class="w-1.5 h-1.5 rounded-full bg-gray-400 mr-1.5"></span> Offline
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-2">
+                <!-- Theme Toggle -->
+                <button id="theme-toggle" class="p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                    <!-- Sun icon for Dark mode (switch to light) -->
+                    <svg id="theme-icon-sun" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                    <!-- Moon icon for Light mode (switch to dark) -->
+                    <svg id="theme-icon-moon" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                </button>
+                <button id="disconnect-btn" class="hidden text-red-500 hover:text-white hover:bg-red-500 text-xs font-bold transition px-3 py-1.5 rounded-full border border-red-500">
+                    End Chat
+                </button>
+            </div>
+        </header>
+
+        <!-- View 1: Setup / Handshake -->
+        <div id="setup-view" class="flex-1 flex flex-col items-center justify-center p-6 space-y-8 overflow-y-auto bg-gray-50 dark:bg-gray-900 transition-theme">
+            
+            <div class="text-center space-y-2">
+                <span class="bg-imessage-blue/10 text-imessage-blue text-xs px-3 py-1 rounded-full font-semibold uppercase tracking-wide">AES-256-GCM E2EE</span>
+                <h2 class="text-2xl font-bold text-gray-900 dark:text-white mt-2">Start Secure Session</h2>
+                <p class="text-gray-500 dark:text-gray-400 text-sm max-w-sm mx-auto">Peer-to-peer connection encrypted using a shared code phrase. No data touches a server.</p>
+            </div>
+
+            <div class="w-full max-w-sm space-y-6">
+                <!-- Host Section -->
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm text-center space-y-4 transition-theme">
+                    <button id="generate-btn" class="w-full bg-imessage-blue hover:bg-blue-600 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 shadow-md">
+                        Generate New Code
+                    </button>
+                    <div id="generated-code-display" class="hidden mt-4 space-y-2">
+                        <p class="text-sm text-gray-500 dark:text-gray-400">Share this secure phrase:</p>
+                        <p id="code-phrase" class="text-lg font-mono font-bold text-imessage-blue bg-blue-50 dark:bg-blue-900/20 py-3 px-4 rounded-xl select-all border border-blue-100 dark:border-blue-800/50 break-words"></p>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-center space-x-4">
+                    <hr class="w-full border-gray-200 dark:border-gray-700">
+                    <span class="text-gray-400 text-xs font-semibold uppercase tracking-wider">OR</span>
+                    <hr class="w-full border-gray-200 dark:border-gray-700">
+                </div>
+
+                <!-- Join Section -->
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-sm space-y-4 transition-theme">
+                    <input type="text" id="join-code" placeholder="Enter code phrase here..." class="w-full bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl py-3 px-4 text-center font-mono text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-imessage-blue transition-all">
+                    <button id="connect-btn" class="w-full bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 text-white font-semibold py-3 px-4 rounded-xl transition duration-200 shadow-md">
+                        Connect to Chat
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- View 2: Active Chat -->
+        <div id="chat-view" class="hidden flex-1 flex flex-col min-h-0 bg-white dark:bg-gray-800 transition-theme">
+            
+            <!-- Message List -->
+            <div id="messages" class="flex-1 min-h-0 p-4 overflow-y-auto space-y-4 flex flex-col">
+                <!-- Messages injected here -->
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-3 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 transition-theme backdrop-blur-md">
+                <div class="flex space-x-2 items-end max-w-3xl mx-auto">
+                    
+                    <!-- File Input Hidden -->
+                    <input type="file" id="file-input" class="hidden">
+                    
+                    <button id="timer-btn" class="p-2 mb-1 text-gray-400 hover:text-imessage-blue transition-colors rounded-full relative" title="Self-Destruct Timer: Off">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span id="timer-badge" class="hidden absolute top-0 right-0 bg-red-500 text-white text-[9px] font-bold px-1 rounded-full border border-white dark:border-gray-800"></span>
+                    </button>
+
+                    <button id="attach-btn" class="p-2 mb-1 text-gray-400 hover:text-imessage-blue transition-colors rounded-full" title="Attach File (Max 100MB)">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path></svg>
+                    </button>
+                    
+                    <div class="flex-1 bg-gray-100 dark:bg-gray-700 rounded-3xl border border-transparent focus-within:border-gray-300 dark:focus-within:border-gray-600 flex items-center overflow-hidden transition-all">
+                        <textarea id="message-input" rows="1" placeholder="iMessage..." class="w-full bg-transparent py-2.5 px-4 text-gray-900 dark:text-gray-100 focus:outline-none resize-none max-h-32" style="min-height: 44px;"></textarea>
+                    </div>
+                    
+                    <button id="send-btn" class="p-2 mb-1 bg-imessage-blue hover:bg-blue-600 text-white rounded-full transition-transform transform active:scale-95 shadow-md flex-shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <svg class="w-5 h-5 translate-x-[1px] translate-y-[-1px]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 19V5m0 0l-5 5m5-5l5 5"></path></svg>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Theme Management ---
+        const html = document.documentElement;
+        const themeToggle = document.getElementById('theme-toggle');
+        
+        function toggleTheme() {
+            html.classList.toggle('dark');
+            localStorage.setItem('theme', html.classList.contains('dark') ? 'dark' : 'light');
+        }
+        
+        // Check saved theme or system preference
+        if (localStorage.getItem('theme') === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            html.classList.add('dark');
+        } else {
+            html.classList.remove('dark');
+        }
+        themeToggle.addEventListener('click', toggleTheme);
+
+        // --- Wordlists for Croc-style Code Phrases ---
+        const adjectives = ["swift", "brave", "calm", "dark", "eager", "fierce", "gentle", "happy", "iron", "jolly", "keen", "loud", "mild", "noble", "proud", "quiet", "rapid", "silent", "tall", "vast", "wild", "young", "zealous"];
+        const nouns = ["apple", "bear", "cat", "dog", "eagle", "fox", "goat", "hawk", "ice", "jaguar", "kite", "lion", "moon", "night", "owl", "panther", "quail", "raven", "sun", "tiger", "unicorn", "viper", "wolf"];
+        
+        // --- State Variables ---
+        let peer = null;
+        let connection = null;
+        let sessionCryptoKey = null; // The derived AES-GCM key
+        
+        // File Transfer State (Chunking)
+        const CHUNK_SIZE = 256 * 1024; // 256 KB chunks
+        const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100 MB soft limit
+        let incomingFiles = {}; // Tracks chunks being received: { fileId: { meta: {}, chunks: [], received: 0 } }
+        
+        // Timer State
+        const timerOptions = [0, 15, 60, 300]; // Off, 15s, 1m, 5m
+        let currentTimerIndex = 0;
+
+        // --- DOM Elements ---
+        const setupView = document.getElementById('setup-view');
+        const chatView = document.getElementById('chat-view');
+        const generateBtn = document.getElementById('generate-btn');
+        const joinCodeInput = document.getElementById('join-code');
+        const connectBtn = document.getElementById('connect-btn');
+        const generatedCodeDisplay = document.getElementById('generated-code-display');
+        const codePhraseText = document.getElementById('code-phrase');
+        const statusIndicator = document.getElementById('status-indicator');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const messagesDiv = document.getElementById('messages');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const attachBtn = document.getElementById('attach-btn');
+        const fileInput = document.getElementById('file-input');
+        const timerBtn = document.getElementById('timer-btn');
+        const timerBadge = document.getElementById('timer-badge');
+
+        // --- Cryptography (Web Crypto API) ---
+        const encoder = new TextEncoder();
+        const decoder = new TextDecoder();
+
+        async function deriveKeyFromPhrase(fullPhrase, routingId) {
+            const salt = encoder.encode(routingId); 
+            const keyMaterial = await window.crypto.subtle.importKey(
+                "raw", encoder.encode(fullPhrase), { name: "PBKDF2" }, false, ["deriveBits", "deriveKey"]
+            );
+            
+            return await window.crypto.subtle.deriveKey(
+                { name: "PBKDF2", salt: salt, iterations: 100000, hash: "SHA-256" },
+                keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+            );
+        }
+
+        async function encryptMessageData(plaintext, key) {
+            const iv = window.crypto.getRandomValues(new Uint8Array(12));
+            const encoded = encoder.encode(plaintext);
+            const ciphertextBuffer = await window.crypto.subtle.encrypt({ name: "AES-GCM", iv: iv }, key, encoded);
+            
+            const payload = new Uint8Array(12 + ciphertextBuffer.byteLength);
+            payload.set(iv, 0);
+            payload.set(new Uint8Array(ciphertextBuffer), 12);
+            return payload;
+        }
+
+        async function decryptMessageData(payload, key) {
+            const dataView = new Uint8Array(payload);
+            const iv = dataView.slice(0, 12);
+            const ciphertext = dataView.slice(12);
+            try {
+                const decryptedBuffer = await window.crypto.subtle.decrypt({ name: "AES-GCM", iv: iv }, key, ciphertext);
+                return decoder.decode(decryptedBuffer);
+            } catch (e) {
+                console.error("Decryption failed.", e);
+                return null;
+            }
+        }
+
+        // --- Core UI & Helpers ---
+        function generateCodePhrase() {
+            const adj1 = adjectives[Math.floor(Math.random() * adjectives.length)];
+            const noun1 = nouns[Math.floor(Math.random() * nouns.length)];
+            const num = Math.floor(Math.random() * 900) + 100;
+            const adj2 = adjectives[Math.floor(Math.random() * adjectives.length)];
+            const noun2 = nouns[Math.floor(Math.random() * nouns.length)];
+            
+            const routingPart = `${adj1}-${noun1}-${num}`;
+            const secretPart = `${adj2}-${noun2}`;
+            return { routingId: routingPart, fullPhrase: `${routingPart}-${secretPart}` };
+        }
+
+        function updateStatus(status, type) {
+            statusIndicator.innerHTML = '';
+            const dot = document.createElement('span');
+            dot.className = `w-1.5 h-1.5 rounded-full mr-1.5 ${type === 'online' ? 'bg-green-500 shadow-[0_0_5px_#22c55e]' : type === 'waiting' ? 'bg-yellow-500 animate-pulse' : 'bg-gray-400'}`;
+            statusIndicator.appendChild(dot);
+            statusIndicator.appendChild(document.createTextNode(status));
+            statusIndicator.className = `text-xs font-medium flex items-center ${type === 'online' ? 'text-green-600 dark:text-green-400' : type === 'waiting' ? 'text-yellow-600 dark:text-yellow-500' : 'text-gray-500'}`;
+        }
+
+        function showChat() {
+            setupView.classList.add('hidden');
+            chatView.classList.remove('hidden');
+            disconnectBtn.classList.remove('hidden');
+            messageInput.focus();
+            addSystemMessage("E2EE Connection Established. Messages are secured locally.");
+        }
+
+        function showSetup() {
+            chatView.classList.add('hidden');
+            setupView.classList.remove('hidden');
+            disconnectBtn.classList.add('hidden');
+            generatedCodeDisplay.classList.add('hidden');
+            joinCodeInput.value = '';
+            messagesDiv.innerHTML = '';
+            updateStatus('Offline', 'offline');
+            sessionCryptoKey = null; 
+            incomingFiles = {};
+        }
+
+        function addSystemMessage(text) {
+             const wrapper = document.createElement('div');
+             wrapper.className = 'w-full flex justify-center my-3';
+             wrapper.innerHTML = `<span class="text-[11px] font-medium text-gray-400 dark:text-gray-500 tracking-wide uppercase">${text}</span>`;
+             messagesDiv.appendChild(wrapper);
+             messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Ephemeral visual countdown and deletion logic
+        function applySelfDestruct(wrapper, bubble, expiresIn) {
+            if (!expiresIn) return;
+            
+            const timerDisplay = document.createElement('div');
+            timerDisplay.className = "text-[10px] opacity-75 mt-1.5 flex items-center justify-end font-mono tracking-tighter w-full";
+            bubble.appendChild(timerDisplay);
+            
+            let remaining = expiresIn;
+            const updateUI = () => {
+                timerDisplay.innerHTML = `<svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z"></path></svg> ${remaining}s`;
+                if(remaining <= 5) timerDisplay.classList.add('text-red-300', 'animate-pulse');
+            };
+            
+            updateUI();
+            const interval = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(interval);
+                    wrapper.style.transition = 'opacity 0.4s ease, transform 0.4s ease, margin-top 0.4s ease, margin-bottom 0.4s ease, max-height 0.4s ease';
+                    wrapper.style.opacity = '0';
+                    wrapper.style.transform = 'scale(0.9)';
+                    wrapper.style.maxHeight = '0px';
+                    wrapper.style.margin = '0px';
+                    wrapper.style.overflow = 'hidden';
+                    setTimeout(() => wrapper.remove(), 400); // Wait for animation
+                } else {
+                    updateUI();
+                }
+            }, 1000);
+        }
+
+        // iMessage-style bubbles
+        function createBubble(isSelf) {
+            const wrapper = document.createElement('div');
+            wrapper.className = `flex w-full ${isSelf ? 'justify-end' : 'justify-start'} group`;
+            
+            const bubble = document.createElement('div');
+            bubble.className = isSelf
+                ? "max-w-[75%] px-4 py-2 text-[15px] leading-relaxed shadow-sm bg-imessage-blue text-white rounded-2xl rounded-br-[4px]"
+                : "max-w-[75%] px-4 py-2 text-[15px] leading-relaxed shadow-sm bg-imessage-gray text-black dark:bg-imessage-darkgray dark:text-white rounded-2xl rounded-bl-[4px]";
+            
+            wrapper.appendChild(bubble);
+            return { wrapper, bubble };
+        }
+
+        function addTextMessage(text, isSelf, expiresIn = 0) {
+            const { wrapper, bubble } = createBubble(isSelf);
+            bubble.textContent = text;
+            applySelfDestruct(wrapper, bubble, expiresIn);
+            messagesDiv.appendChild(wrapper);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        // Creates a file transfer UI bubble and returns elements to update progress
+        function addFileTransferUI(fileId, fileName, fileSize, isSelf, expiresIn = 0) {
+            const { wrapper, bubble } = createBubble(isSelf);
+            bubble.className += " min-w-[200px]"; // Ensure width for progress bar
+            
+            const sizeMB = (fileSize / (1024 * 1024)).toFixed(2);
+            
+            bubble.innerHTML = `
+                <div class="flex flex-col space-y-2">
+                    <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-white/20 dark:bg-black/20 rounded-lg">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold truncate" title="${fileName}">${fileName}</p>
+                            <p class="text-[11px] opacity-75">${sizeMB} MB</p>
+                        </div>
+                    </div>
+                    <!-- Progress Bar Container -->
+                    <div id="progress-container-${fileId}" class="w-full bg-black/10 dark:bg-white/10 rounded-full h-1.5 mt-2 overflow-hidden">
+                        <div id="progress-bar-${fileId}" class="bg-white h-1.5 rounded-full transition-all duration-200" style="width: 0%"></div>
+                    </div>
+                    <p id="progress-text-${fileId}" class="text-[10px] text-right font-medium opacity-80 uppercase tracking-wider">0%</p>
+                    <div id="action-container-${fileId}" class="hidden mt-1"></div>
+                </div>
+            `;
+            
+            wrapper.id = `msg-file-${fileId}`;
+            messagesDiv.appendChild(wrapper);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            
+            return {
+                updateProgress: (percent) => {
+                    document.getElementById(`progress-bar-${fileId}`).style.width = `${percent}%`;
+                    document.getElementById(`progress-text-${fileId}`).innerText = `${percent}%`;
+                },
+                complete: (objectUrl, mimeType) => {
+                    document.getElementById(`progress-container-${fileId}`).classList.add('hidden');
+                    document.getElementById(`progress-text-${fileId}`).classList.add('hidden');
+                    
+                    const actionContainer = document.getElementById(`action-container-${fileId}`);
+                    actionContainer.classList.remove('hidden');
+                    
+                    if (mimeType && mimeType.startsWith('image/')) {
+                        actionContainer.innerHTML = `<img src="${objectUrl}" class="rounded mt-2 max-h-48 object-cover shadow-sm">`;
+                    }
+                    
+                    const btnClass = isSelf 
+                        ? 'bg-white/20 hover:bg-white/30 text-white' 
+                        : 'bg-black/10 hover:bg-black/20 dark:bg-white/10 dark:hover:bg-white/20 dark:text-white text-black';
+                        
+                    actionContainer.innerHTML += `
+                        <a href="${objectUrl}" download="${fileName}" class="mt-2 block w-full text-center text-xs font-semibold py-2 px-3 rounded-lg transition-colors ${btnClass}">
+                            Download File
+                        </a>
+                    `;
+                    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+                }
+            };
+            
+            // Apply self-destruct after UI is fully established
+            applySelfDestruct(wrapper, bubble, expiresIn);
+            
+            return controls;
+        }
+
+        // --- PeerJS & Connection Logic ---
+        
+        generateBtn.addEventListener('click', async () => {
+            const phraseData = generateCodePhrase();
+            codePhraseText.textContent = phraseData.fullPhrase;
+            generatedCodeDisplay.classList.remove('hidden');
+            generateBtn.disabled = true;
+            generateBtn.classList.add('opacity-50');
+
+            updateStatus('Deriving Crypto Key...', 'waiting');
+            try { sessionCryptoKey = await deriveKeyFromPhrase(phraseData.fullPhrase, phraseData.routingId); } 
+            catch (err) { alert("Cryptographic error: " + err.message); return; }
+
+            updateStatus('Awaiting Peer...', 'waiting');
+            peer = new Peer(phraseData.routingId, { debug: 1 });
+
+            peer.on('connection', (conn) => {
+                connection = conn;
+                setupConnectionHandlers();
+            });
+
+            peer.on('error', (err) => { alert("Routing Error: " + err.message); resetUI(); });
+        });
+
+        connectBtn.addEventListener('click', async () => {
+            const fullCode = joinCodeInput.value.trim().toLowerCase();
+            if (!fullCode || fullCode.split('-').length < 5) return alert("Enter valid code phrase.");
+
+            const routingId = fullCode.split('-').slice(0,3).join('-');
+            updateStatus('Deriving Crypto Key...', 'waiting');
+            connectBtn.disabled = true;
+            connectBtn.classList.add('opacity-50');
+
+            try { sessionCryptoKey = await deriveKeyFromPhrase(fullCode, routingId); } 
+            catch (err) { alert("Cryptographic error: " + err.message); resetUI(); return; }
+
+            updateStatus('Connecting...', 'waiting');
+            peer = new Peer({ debug: 1 });
+
+            peer.on('open', () => {
+                connection = peer.connect(routingId, { reliable: true });
+                setupConnectionHandlers();
+            });
+            peer.on('error', (err) => { alert("Connection Error: " + err.message); resetUI(); });
+        });
+
+        function setupConnectionHandlers() {
+            connection.on('open', () => {
+                updateStatus('Secure Link Active', 'online');
+                showChat();
+            });
+
+            connection.on('data', async (data) => {
+                if (!sessionCryptoKey) return;
+                
+                const plaintext = await decryptMessageData(data, sessionCryptoKey);
+                if (plaintext === null) {
+                    addSystemMessage("⚠️ Decryption failed. Incorrect phrase?");
+                    return;
+                }
+
+                try {
+                    const payload = JSON.parse(plaintext);
+                    
+                    if (payload.type === 'text') {
+                        addTextMessage(payload.text, false, payload.expiresIn);
+                    } 
+                    else if (payload.type === 'file-meta') {
+                        // Initialize file receiver
+                        incomingFiles[payload.fileId] = {
+                            meta: payload,
+                            chunks: new Array(payload.totalChunks),
+                            receivedCount: 0,
+                            ui: addFileTransferUI(payload.fileId, payload.fileName, payload.size, false, payload.expiresIn)
+                        };
+                    }
+                    else if (payload.type === 'file-chunk') {
+                        const fileState = incomingFiles[payload.fileId];
+                        if (!fileState) return;
+
+                        fileState.chunks[payload.index] = payload.data; // Store base64 chunk
+                        fileState.receivedCount++;
+
+                        const percent = Math.floor((fileState.receivedCount / fileState.meta.totalChunks) * 100);
+                        fileState.ui.updateProgress(percent);
+
+                        // File assembly complete
+                        if (fileState.receivedCount === fileState.meta.totalChunks) {
+                            try {
+                                // Robust Base64 to Blob conversion (avoids fetch data URI size limits)
+                                const byteArrays = [];
+                                for (let i = 0; i < fileState.chunks.length; i++) {
+                                    const b64Data = fileState.chunks[i] || "";
+                                    const byteCharacters = atob(b64Data);
+                                    const byteNumbers = new Array(byteCharacters.length);
+                                    for (let j = 0; j < byteCharacters.length; j++) {
+                                        byteNumbers[j] = byteCharacters.charCodeAt(j);
+                                    }
+                                    byteArrays.push(new Uint8Array(byteNumbers));
+                                }
+                                
+                                const mimeType = fileState.meta.fileType || 'application/octet-stream';
+                                const blob = new Blob(byteArrays, { type: mimeType });
+                                const objUrl = URL.createObjectURL(blob);
+                                fileState.ui.complete(objUrl, mimeType);
+                                delete incomingFiles[payload.fileId]; // Free memory
+                            } catch (error) {
+                                console.error("File assembly error", error);
+                                addSystemMessage("Error saving received file.");
+                            }
+                        }
+                    }
+                } catch(e) {
+                    console.error("Payload parse error", e);
+                }
+            });
+
+            connection.on('close', () => { addSystemMessage("Peer disconnected."); destroyConnection(); });
+        }
+
+        function resetUI() {
+            generateBtn.disabled = false; generateBtn.classList.remove('opacity-50');
+            connectBtn.disabled = false; connectBtn.classList.remove('opacity-50');
+            updateStatus('Offline', 'offline');
+        }
+
+        function destroyConnection() {
+            if (connection) connection.close();
+            if (peer) peer.destroy();
+            connection = null; peer = null;
+            resetUI(); showSetup();
+        }
+
+        // --- Chat UI Events & File Sender ---
+        
+        // Timer Button Logic
+        timerBtn.addEventListener('click', () => {
+            currentTimerIndex = (currentTimerIndex + 1) % timerOptions.length;
+            const t = timerOptions[currentTimerIndex];
+            if (t === 0) {
+                timerBadge.classList.add('hidden');
+                timerBtn.title = "Self-Destruct Timer: Off";
+                timerBtn.classList.remove('text-red-500');
+            } else {
+                timerBadge.classList.remove('hidden');
+                timerBadge.textContent = t < 60 ? t + 's' : (t/60) + 'm';
+                timerBtn.title = `Self-Destruct Timer: ${t}s`;
+                timerBtn.classList.add('text-red-500');
+            }
+        });
+
+        // Auto-resize textarea
+        messageInput.addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+            sendBtn.disabled = this.value.trim() === '';
+        });
+
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendSecureMessage();
+            }
+        });
+
+        sendBtn.addEventListener('click', sendSecureMessage);
+        
+        async function sendSecureMessage() {
+            const text = messageInput.value.trim();
+            if (text && connection && connection.open && sessionCryptoKey) {
+                const expiresIn = timerOptions[currentTimerIndex];
+                const payload = { type: 'text', text: text, expiresIn: expiresIn };
+                try {
+                    const encryptedPayload = await encryptMessageData(JSON.stringify(payload), sessionCryptoKey);
+                    connection.send(encryptedPayload);
+                    addTextMessage(text, true, expiresIn);
+                    messageInput.value = '';
+                    messageInput.style.height = 'auto';
+                    sendBtn.disabled = true;
+                } catch (err) { alert("Encryption error."); }
+            }
+        }
+
+        attachBtn.addEventListener('click', () => fileInput.click());
+
+        // File Chunking Sender Engine
+        fileInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            fileInput.value = ''; // reset
+            
+            if (file.size > MAX_FILE_SIZE) {
+                return alert(`File too large. Max size is ${MAX_FILE_SIZE / (1024*1024)}MB for this prototype.`);
+            }
+
+            if (!connection || !connection.open || !sessionCryptoKey) return alert("Not connected.");
+
+            const fileId = Math.random().toString(36).substring(2, 10);
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            const expiresIn = timerOptions[currentTimerIndex];
+            
+            // 1. Send Metadata
+            const metaPayload = {
+                type: 'file-meta',
+                fileId: fileId,
+                fileName: file.name,
+                fileType: file.type || 'application/octet-stream',
+                size: file.size,
+                totalChunks: totalChunks,
+                expiresIn: expiresIn
+            };
+            
+            try {
+                const encMeta = await encryptMessageData(JSON.stringify(metaPayload), sessionCryptoKey);
+                connection.send(encMeta);
+            } catch (err) { return alert("Failed to initiate file transfer."); }
+
+            // Create UI for sender
+            const ui = addFileTransferUI(fileId, file.name, file.size, true, expiresIn);
+            let chunksSent = 0;
+
+            // 2. Read and Send Chunks
+            const reader = new FileReader();
+            
+            // Promise wrapper for reading file slice as Data URL (Base64)
+            const readSlice = (start, end) => new Promise((resolve) => {
+                reader.onload = (e) => {
+                    // Extract just the base64 data portion
+                    const dataUrl = e.target.result;
+                    const b64Data = dataUrl.split(',')[1];
+                    resolve(b64Data);
+                };
+                reader.readAsDataURL(file.slice(start, end));
+            });
+
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                
+                const b64Chunk = await readSlice(start, end);
+                const chunkPayload = { type: 'file-chunk', fileId: fileId, index: i, data: b64Chunk };
+                const encChunk = await encryptMessageData(JSON.stringify(chunkPayload), sessionCryptoKey);
+                
+                // Backpressure handling: wait if WebRTC buffer is getting full (> 2MB)
+                while (connection.dataChannel && connection.dataChannel.bufferedAmount > 2 * 1024 * 1024) {
+                    await new Promise(r => setTimeout(r, 50));
+                }
+
+                connection.send(encChunk);
+                chunksSent++;
+                
+                // Update local UI
+                const percent = Math.floor((chunksSent / totalChunks) * 100);
+                ui.updateProgress(percent);
+            }
+
+            // Transfer complete, update UI to show download/preview
+            const localObjUrl = URL.createObjectURL(file);
+            ui.complete(localObjUrl, file.type);
+        });
+
+        disconnectBtn.addEventListener('click', destroyConnection);
+
+    </script>
+</body>
+</html>
